@@ -34,8 +34,18 @@ class HidController(
     private val sender = Thread({
         while (true) {
             val r = queue.take()
-            val h = hid; val d = host
-            if (h != null && d != null) h.sendReport(d, r.id, r.data)
+            // sendReport() returns false when the link is congested. Dropping a
+            // key-release makes the PC auto-repeat that key, so retry until accepted.
+            var tries = 0
+            while (true) {
+                val h = hid; val d = host
+                if (h == null || d == null) break
+                if (h.sendReport(d, r.id, r.data)) break
+                if (++tries > 50) break
+                Thread.sleep(4)
+            }
+            // Keyboard reports are paced so the host sees every press and release.
+            if (r.id == HidDescriptor.ID_KEYBOARD) Thread.sleep(KEY_REPORT_GAP_MS)
         }
     }, "hid-sender").apply { isDaemon = true; start() }
 
@@ -130,24 +140,12 @@ class HidController(
         sendKeys(0, 0)
     }
 
-    /**
-     * Types a string as fast as HID allows. Consecutive different keys are sent as
-     * direct press->press transitions (no release report in between); a release is
-     * only inserted when the same key repeats or the modifier changes. That roughly
-     * halves the report count versus press/release per character.
-     */
+    /** Types a string: one press + release per character, queued in a single batch. */
     fun typeText(text: CharSequence, extraModifiers: Int = 0) {
-        var lastMod = 0; var lastUsage = 0
         for (c in text) {
-            val (mod0, usage) = KeyMap.forChar(c) ?: continue
-            val mod = mod0 or extraModifiers
-            if (usage == lastUsage || mod != lastMod) {
-                if (lastUsage != 0) sendKeys(0, 0)
-            }
-            sendKeys(mod, usage)
-            lastMod = mod; lastUsage = usage
+            val (mod, usage) = KeyMap.forChar(c) ?: continue
+            tapKey(mod or extraModifiers, usage)
         }
-        if (lastUsage != 0) sendKeys(0, 0)
     }
 
     private fun sendKeys(modifiers: Int, usage: Int) {
@@ -160,5 +158,7 @@ class HidController(
         const val BTN_LEFT = 1
         const val BTN_RIGHT = 2
         const val BTN_MIDDLE = 4
+        /** ~7.5ms is the shortest BT HID interval; 8ms keeps reports from bunching. */
+        const val KEY_REPORT_GAP_MS = 8L
     }
 }
