@@ -3,13 +3,31 @@
 Turns a Galaxy Z Fold 8 (Android 16, API 36) into a Bluetooth touchpad and keyboard
 for a PC, using Android's `BluetoothHidDevice` profile. No PC-side software needed.
 
-## Use
-1. Install and open the app; grant the Bluetooth permissions.
-2. Tap **Connect** → *Make discoverable*, then pair "your phone" from the PC's Bluetooth settings.
-   Already-paired PCs can be picked directly from the list.
-3. Unfold and use the inner screen as a trackpad.
+## Install
+Every push builds a debug APK in GitHub Actions.
 
-### Gestures
+1. Download the latest build:
+   ```sh
+   gh run download -R ian-howell/fold-touchpad -n fold-touchpad-debug
+   ```
+   (or: repo → **Actions** → latest run → **Artifacts** → `fold-touchpad-debug`)
+2. Install `app-debug.apk` on the phone:
+   - USB: `adb install app-debug.apk`, or
+   - copy the file to the phone and open it (allow "install unknown apps" when prompted).
+
+## First-time pairing
+1. Open **Fold Touchpad** and grant the Bluetooth permissions.
+2. Tap **Connect** → **Make discoverable (pair new PC)…** and accept.
+3. On the PC, open Bluetooth settings → *Add device* → select the phone.
+   It should appear as a keyboard/mouse.
+4. Afterwards, just open the app and tap **Connect** → pick the PC
+   (the PC may also reconnect on its own).
+
+The status line at the top of the app shows registration/connection state.
+
+## Touchpad
+Unfold and use the inner screen.
+
 | Gesture | Action |
 |---|---|
 | 1-finger drag | Move pointer |
@@ -19,17 +37,26 @@ for a PC, using Android's `BluetoothHidDevice` profile. No PC-side software need
 | 2-finger drag | Scroll (vertical + horizontal) |
 | Tap, then tap-and-hold + drag | Click-drag |
 
-Bottom **Left/Right** buttons can be held for dragging.
+The **Left** / **Right** buttons at the bottom can also be held for dragging.
 
-### Keyboard
-Tap **⌨** to open the phone's keyboard; keystrokes go to the PC. Ctrl/Alt/Shift/Win
-toggles latch for the next key (e.g. Ctrl then `c`). Esc, Tab, arrows and Del are in the toolbar.
-Mapping assumes a US layout on the PC.
+## Keyboard
+- Tap **⌨** to open the phone's keyboard; keystrokes go to the PC.
+- **Ctrl / Alt / Shift / Win** toggles latch for the next key only (e.g. Ctrl, then `c` = copy).
+- **Esc, Tab, arrows, Del** are on the toolbar (scrolls horizontally).
+- Mapping assumes a US layout on the PC.
 
-## Build
-Requires JDK 17 and the Android SDK (platform 36).
+## Troubleshooting
+- **Won't connect:** forget the pairing on both the PC and the phone, then pair again.
+- **Pairing never works at all:** some Samsung firmware restricts the HID Device profile;
+  note the status-line text when reporting it.
+- **Garbled or duplicated text:** turn off predictive text in Samsung Keyboard, or use Gboard.
+- **Pointer/scroll speed:** tune `sensitivity` and `scrollDivisor` in
+  `app/src/main/java/dev/ian/foldtouchpad/TouchpadView.kt`.
+
+## Building locally
+Requires JDK 17 and the Android SDK (platform 36), plus Gradle 8.14:
 
 ```sh
-gradle wrapper   # once, if gradlew is missing
-./gradlew installDebug
+gradle :app:assembleDebug     # APK in app/build/outputs/apk/debug/
+gradle :app:installDebug      # build + install to a connected phone
 ```
