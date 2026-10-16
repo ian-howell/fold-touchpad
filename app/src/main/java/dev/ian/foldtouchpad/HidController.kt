@@ -44,28 +44,32 @@ class HidController(
             val h = hid; val d = host
             if (h != null && d != null) {
                 val t0 = SystemClock.elapsedRealtime()
-                h.sendReport(d, r.id, r.data)
-                recordSendTime(SystemClock.elapsedRealtime() - t0)
+                val ok = h.sendReport(d, r.id, r.data)
+                recordSend(r.id, ok, SystemClock.elapsedRealtime() - t0)
             }
             // Keyboard reports are paced so the host sees every press and release.
             if (r.id == HidDescriptor.ID_KEYBOARD && keyGapMs > 0) Thread.sleep(keyGapMs)
         }
     }, "hid-sender").apply { isDaemon = true; start() }
 
-    // Diagnostics: how long sendReport() blocks. Shown in the status line.
-    private var statCount = 0
-    private var statTotalMs = 0L
+    // Diagnostics: per report type, how many sendReport() calls the stack
+    // accepted vs rejected, and how long they blocked. Shown in the status line.
+    private val accepted = IntArray(3)
+    private val rejected = IntArray(3)
     private var statMaxMs = 0L
     private var statLastShown = 0L
     private var baseStatus = ""
 
-    private fun recordSendTime(ms: Long) {
-        statCount++; statTotalMs += ms; if (ms > statMaxMs) statMaxMs = ms
+    private fun recordSend(id: Int, ok: Boolean, ms: Long) {
+        if (ok) accepted[id]++ else rejected[id]++
+        if (ms > statMaxMs) statMaxMs = ms
         val now = SystemClock.elapsedRealtime()
         if (queue.isEmpty() || now - statLastShown > 1000) {
             statLastShown = now
-            onStatus("$baseStatus · send avg ${statTotalMs / statCount}ms, max ${statMaxMs}ms (${statCount})")
-            statCount = 0; statTotalMs = 0; statMaxMs = 0
+            val k = HidDescriptor.ID_KEYBOARD; val m = HidDescriptor.ID_MOUSE
+            onStatus("$baseStatus · keys ok ${accepted[k]} rejected ${rejected[k]} · " +
+                "mouse ok ${accepted[m]} rejected ${rejected[m]} · max ${statMaxMs}ms")
+            accepted.fill(0); rejected.fill(0); statMaxMs = 0
         }
     }
 
