@@ -53,6 +53,7 @@ class HidController(
                 val h = hid; val d = host
                 if (h == null || d == null) break
                 ok = h.sendReport(d, r.id, r.data)
+                event("send id=${r.id} ${r.data.joinToString(" ") { "%02x".format(it) }} -> $ok")
                 if (ok) break
                 rejected[r.id]++
                 if (SystemClock.elapsedRealtime() - t0 > REJECT_TIMEOUT_MS) break
@@ -92,15 +93,37 @@ class HidController(
         }
     }
 
+    /** Ring buffer of timestamped Bluetooth events, viewable by tapping the status line. */
+    private val log = ArrayDeque<String>()
+    private val logStart = SystemClock.elapsedRealtime()
+    fun event(msg: String) = synchronized(log) {
+        val t = SystemClock.elapsedRealtime() - logStart
+        log.addLast("%6d.%03d  %s".format(t / 1000, t % 1000, msg))
+        while (log.size > 300) log.removeFirst()
+    }
+    fun eventLog(): String = synchronized(log) { log.reversed().joinToString("\n") }
+
     private fun status(msg: String) { baseStatus = msg; onStatus(msg) }
 
     private val callback = object : BluetoothHidDevice.Callback() {
         override fun onAppStatusChanged(device: BluetoothDevice?, registered: Boolean) {
+            event("app registered=$registered")
             status(if (registered) "Registered – pair from your PC or pick a host" else "Not registered")
             if (registered) device?.let { hid?.connect(it) }
         }
 
+        override fun onSetProtocol(device: BluetoothDevice, protocol: Byte) {
+            event("PC SET_PROTOCOL $protocol")
+        }
+
+        override fun onInterruptData(device: BluetoothDevice, reportId: Byte, data: ByteArray) {
+            event("PC interrupt data id=$reportId ${data.joinToString(" ") { "%02x".format(it) }}")
+        }
+
+        override fun onVirtualCableUnplug(device: BluetoothDevice) { event("PC virtual cable unplug") }
+
         override fun onConnectionStateChanged(device: BluetoothDevice, state: Int) {
+            event("connection state $state")
             when (state) {
                 BluetoothProfile.STATE_CONNECTED -> { host = device; status("Connected: ${device.name}") }
                 BluetoothProfile.STATE_DISCONNECTED -> {
@@ -112,11 +135,13 @@ class HidController(
         }
 
         override fun onGetReport(device: BluetoothDevice, type: Byte, id: Byte, bufferSize: Int) {
+            event("PC GET_REPORT type=$type id=$id size=$bufferSize")
             val size = if (id.toInt() == HidDescriptor.ID_KEYBOARD) 8 else 5
             hid?.replyReport(device, type, id, ByteArray(size))
         }
 
         override fun onSetReport(device: BluetoothDevice, type: Byte, id: Byte, data: ByteArray) {
+            event("PC SET_REPORT type=$type id=$id ${data.joinToString(" ") { "%02x".format(it) }}")
             hid?.reportError(device, BluetoothHidDevice.ERROR_RSP_SUCCESS)
         }
     }

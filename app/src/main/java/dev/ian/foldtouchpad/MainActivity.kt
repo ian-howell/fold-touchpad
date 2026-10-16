@@ -37,6 +37,7 @@ class MainActivity : Activity() {
         hid = HidController(this) { msg -> runOnUiThread { status.text = msg; touchpad.invalidate() } }
         status = TextView(this).apply {
             text = "Starting…"; setTextColor(Color.LTGRAY); setPadding(24, 16, 24, 8)
+            setOnClickListener { showLog() }
         }
         touchpad = TouchpadView(this, hid)
         keys = KeyboardSink(this, hid)
@@ -224,6 +225,24 @@ class MainActivity : Activity() {
         private const val DEFAULT_POINTER = 1.6f
         private const val DEFAULT_SCROLL = 1.0f
         private const val BASE_SCROLL_DIVISOR = 24f
+    }
+
+    /** Tap the status line: newest-first Bluetooth event log, with a copy button. */
+    private fun showLog() {
+        val text = hid.eventLog().ifEmpty { "(no events yet)" }
+        val view = TextView(this).apply {
+            this.text = text; typeface = android.graphics.Typeface.MONOSPACE; textSize = 11f
+            setTextIsSelectable(true); setPadding(24, 16, 24, 16)
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Bluetooth log")
+            .setView(android.widget.ScrollView(this).apply { addView(view) })
+            .setPositiveButton("Close", null)
+            .setNeutralButton("Copy") { _, _ ->
+                getSystemService(android.content.ClipboardManager::class.java)
+                    .setPrimaryClip(android.content.ClipData.newPlainText("bt log", text))
+            }
+            .show()
     }
 
     override fun onDestroy() {
