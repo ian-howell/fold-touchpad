@@ -30,6 +30,9 @@ class HidController(
     /** Delay after each keyboard report (ms); set from Settings. */
     @Volatile var keyGapMs = DEFAULT_KEY_GAP_MS
 
+    /** Link QoS requested at registration (takes effect on next app start). */
+    var linkMode = LINK_BEST_EFFORT
+
     /**
      * All reports go through one background thread. sendReport() is a blocking
      * binder call; doing it on the UI thread was the main source of keyboard lag.
@@ -41,12 +44,21 @@ class HidController(
             val r = queue.take()
             // Send once. sendReport()'s return value is unreliable on some stacks
             // (false even on success), so retrying on it stalled typing badly.
-            val h = hid; val d = host
-            if (h != null && d != null) {
-                val t0 = SystemClock.elapsedRealtime()
-                val ok = h.sendReport(d, r.id, r.data)
-                recordSend(r.id, ok, SystemClock.elapsedRealtime() - t0)
+            // Flow control: when the stack is busy it rejects the report. Wait briefly
+            // and resend the *same* report so key releases are never lost, but give up
+            // after REJECT_TIMEOUT_MS so a dead link can't stall typing forever.
+            val t0 = SystemClock.elapsedRealtime()
+            var ok = false
+            while (true) {
+                val h = hid; val d = host
+                if (h == null || d == null) break
+                ok = h.sendReport(d, r.id, r.data)
+                if (ok) break
+                rejected[r.id]++
+                if (SystemClock.elapsedRealtime() - t0 > REJECT_TIMEOUT_MS) break
+                Thread.sleep(2)
             }
+            recordSend(r.id, ok, SystemClock.elapsedRealtime() - t0)
             // Keyboard reports are paced so the host sees every press and release.
             if (r.id == HidDescriptor.ID_KEYBOARD && keyGapMs > 0) Thread.sleep(keyGapMs)
         }
@@ -60,16 +72,23 @@ class HidController(
     private var statLastShown = 0L
     private var baseStatus = ""
 
+    private var burstStart = 0L
+    private var burstReports = 0
+
     private fun recordSend(id: Int, ok: Boolean, ms: Long) {
-        if (ok) accepted[id]++ else rejected[id]++
+        if (ok) accepted[id]++
         if (ms > statMaxMs) statMaxMs = ms
         val now = SystemClock.elapsedRealtime()
+        if (burstReports == 0) burstStart = now - ms
+        burstReports++
         if (queue.isEmpty() || now - statLastShown > 1000) {
             statLastShown = now
-            val k = HidDescriptor.ID_KEYBOARD; val m = HidDescriptor.ID_MOUSE
-            onStatus("$baseStatus · keys ok ${accepted[k]} rejected ${rejected[k]} · " +
-                "mouse ok ${accepted[m]} rejected ${rejected[m]} · max ${statMaxMs}ms")
-            accepted.fill(0); rejected.fill(0); statMaxMs = 0
+            val k = HidDescriptor.ID_KEYBOARD
+            val secs = (now - burstStart).coerceAtLeast(1) / 1000.0
+            onStatus("$baseStatus · ${linkModeName(linkMode)} · keys ok ${accepted[k]} " +
+                "busy-retries ${rejected[k]} · max ${statMaxMs}ms · " +
+                "%.0f reports/s".format(burstReports / secs))
+            accepted.fill(0); rejected.fill(0); statMaxMs = 0; burstReports = 0
         }
     }
 
@@ -110,13 +129,16 @@ class HidController(
                     "Fold Touchpad", "Touchpad and keyboard", "dev.ian",
                     BluetoothHidDevice.SUBCLASS1_COMBO, HidDescriptor.DESCRIPTOR,
                 )
-                // Ask for a low-latency link. Without QoS the stack may let the link
-                // idle into sniff mode, delaying each report by hundreds of ms
-                // (the PC then auto-repeats the held key).
-                val qos = BluetoothHidDeviceAppQosSettings(
-                    BluetoothHidDeviceAppQosSettings.SERVICE_GUARANTEED,
-                    800, 9, 0, 11250, BluetoothHidDeviceAppQosSettings.MAX,
-                )
+                // Same values as Google's WearMouse. "Guaranteed" seemed to make the
+                // stack buffer reports instead of signalling busy, causing a backlog.
+                val qos = when (linkMode) {
+                    LINK_NONE -> null
+                    else -> BluetoothHidDeviceAppQosSettings(
+                        if (linkMode == LINK_GUARANTEED) BluetoothHidDeviceAppQosSettings.SERVICE_GUARANTEED
+                        else BluetoothHidDeviceAppQosSettings.SERVICE_BEST_EFFORT,
+                        800, 9, 0, 11250, BluetoothHidDeviceAppQosSettings.MAX,
+                    )
+                }
                 proxy.registerApp(sdp, null, qos, executor, callback)
             }
 
@@ -170,9 +192,6 @@ class HidController(
     // ---- Keyboard ----
     fun tapKey(modifiers: Int, usage: Int) {
         sendKeys(modifiers, usage)
-        // Release twice: a lost release is what makes the PC auto-repeat a key,
-        // and a duplicate "all keys up" report is harmless.
-        sendKeys(0, 0)
         sendKeys(0, 0)
     }
 
@@ -194,7 +213,15 @@ class HidController(
         const val BTN_LEFT = 1
         const val BTN_RIGHT = 2
         const val BTN_MIDDLE = 4
-        /** 3 reports/char at 4ms ≈ 80 chars/s. */
-        const val DEFAULT_KEY_GAP_MS = 4L
+        /** Busy-retry flow control already paces reports; no extra gap by default. */
+        const val DEFAULT_KEY_GAP_MS = 0L
+        const val REJECT_TIMEOUT_MS = 500L
+
+        const val LINK_BEST_EFFORT = 0
+        const val LINK_GUARANTEED = 1
+        const val LINK_NONE = 2
+        fun linkModeName(m: Int) = when (m) {
+            LINK_GUARANTEED -> "QoS guaranteed"; LINK_NONE -> "no QoS"; else -> "QoS best-effort"
+        }
     }
 }

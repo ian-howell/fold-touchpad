@@ -63,9 +63,11 @@ Common to both:
 ## Settings
 Tap **⚙** on the toolbar:
 - **Pointer speed** and **Scroll speed** sliders (0.2×–4.0×). Changes apply and save immediately.
-- **Typing delay** (0–30 ms, default 4): pause after each key report. Lower = faster typing;
+- **Typing delay** (0–30 ms, default 0): pause after each key report. Lower = faster typing;
   raise it if letters repeat or go missing on the PC.
-- **Reset** restores defaults (pointer 1.6×, scroll 1.0×, typing delay 4 ms).
+- **Reset** restores defaults (pointer 1.6×, scroll 1.0×, typing delay 0 ms, link best-effort).
+- **Bluetooth link mode** (QoS best-effort / guaranteed / none): restart the app after changing.
+  If keys repeat, try another mode. The status line shows reports/s and busy-retries while typing.
 
 ## Troubleshooting
 - **Won't connect:** forget the pairing on both the PC and the phone, then pair again.

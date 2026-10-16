@@ -42,6 +42,7 @@ class MainActivity : Activity() {
         keys = KeyboardSink(this, hid)
         staging = StagingBar(this, hid)
         stagedMode = prefs.getBoolean(KEY_STAGED, true)
+        hid.linkMode = prefs.getInt(KEY_LINK, HidController.LINK_BEST_EFFORT)
         applySettings()
         keys.onStickyCleared = { runOnUiThread { modToggles.forEach { it.first.isChecked = false } } }
 
@@ -148,7 +149,7 @@ class MainActivity : Activity() {
     private fun applySettings() {
         touchpad.sensitivity = prefs.getFloat(KEY_POINTER, DEFAULT_POINTER)
         touchpad.scrollDivisor = BASE_SCROLL_DIVISOR / prefs.getFloat(KEY_SCROLL, DEFAULT_SCROLL)
-        hid.keyGapMs = prefs.getInt(KEY_GAP, HidController.DEFAULT_KEY_GAP_MS.toInt()).toLong()
+        hid.keyGapMs = prefs.getInt(KEY_GAP2, HidController.DEFAULT_KEY_GAP_MS.toInt()).toLong()
     }
 
     /** Settings dialog: sliders for pointer and scroll speed (0.2x–4.0x), saved immediately. */
@@ -179,13 +180,13 @@ class MainActivity : Activity() {
         run {
             val title = TextView(this)
             fun show(v: Int) { title.text = "Typing delay: $v ms per report (raise if letters repeat or drop)" }
-            val current = prefs.getInt(KEY_GAP, HidController.DEFAULT_KEY_GAP_MS.toInt())
+            val current = prefs.getInt(KEY_GAP2, HidController.DEFAULT_KEY_GAP_MS.toInt())
             show(current)
             val bar = SeekBar(this).apply {
                 max = 30; progress = current
                 setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                     override fun onProgressChanged(sb: SeekBar, p: Int, fromUser: Boolean) {
-                        show(p); prefs.edit().putInt(KEY_GAP, p).apply(); applySettings()
+                        show(p); prefs.edit().putInt(KEY_GAP2, p).apply(); applySettings()
                     }
                     override fun onStartTrackingTouch(sb: SeekBar) {}
                     override fun onStopTrackingTouch(sb: SeekBar) {}
@@ -193,12 +194,23 @@ class MainActivity : Activity() {
             }
             box.addView(title); box.addView(bar, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         }
+        box.addView(TextView(this).apply { text = "Bluetooth link mode (restart app to apply)"; setPadding(0, pad, 0, 0) })
+        val modes = listOf(HidController.LINK_BEST_EFFORT, HidController.LINK_GUARANTEED, HidController.LINK_NONE)
+        box.addView(android.widget.RadioGroup(this).apply {
+            val cur = prefs.getInt(KEY_LINK, HidController.LINK_BEST_EFFORT)
+            modes.forEach { m ->
+                addView(android.widget.RadioButton(context).apply {
+                    id = 1000 + m; text = HidController.linkModeName(m); isChecked = m == cur
+                })
+            }
+            setOnCheckedChangeListener { _, id -> prefs.edit().putInt(KEY_LINK, id - 1000).apply() }
+        })
         AlertDialog.Builder(this)
             .setTitle("Settings")
             .setView(box)
             .setPositiveButton("Done", null)
             .setNeutralButton("Reset") { _, _ ->
-                prefs.edit().remove(KEY_POINTER).remove(KEY_SCROLL).remove(KEY_GAP).apply(); applySettings()
+                prefs.edit().remove(KEY_POINTER).remove(KEY_SCROLL).remove(KEY_GAP2).remove(KEY_LINK).apply(); applySettings()
             }
             .show()
     }
@@ -207,7 +219,8 @@ class MainActivity : Activity() {
         private const val KEY_POINTER = "pointer_speed"
         private const val KEY_SCROLL = "scroll_speed"
         private const val KEY_STAGED = "staged_mode"
-        private const val KEY_GAP = "key_gap_ms"
+        private const val KEY_GAP2 = "key_gap_ms_v2" // new key so the old 4ms default resets to 0
+        private const val KEY_LINK = "link_mode"
         private const val DEFAULT_POINTER = 1.6f
         private const val DEFAULT_SCROLL = 1.0f
         private const val BASE_SCROLL_DIVISOR = 24f
