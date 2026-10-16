@@ -63,12 +63,15 @@ Common to both:
 ## Settings
 Tap **⚙** on the toolbar:
 - **Pointer speed** and **Scroll speed** sliders (0.2×–4.0×). Changes apply and save immediately.
-- **Reset** restores defaults (pointer 1.6×, scroll 1.0×).
+- **Typing delay** (0–30 ms, default 4): pause after each key report. Lower = faster typing;
+  raise it if letters repeat or go missing on the PC.
+- **Reset** restores defaults (pointer 1.6×, scroll 1.0×, typing delay 4 ms).
 
 ## Troubleshooting
 - **Won't connect:** forget the pairing on both the PC and the phone, then pair again.
 - **Pairing never works at all:** some Samsung firmware restricts the HID Device profile;
   note the status-line text when reporting it.
+- **Letters repeat ("Thiiiis") or go missing:** raise **Typing delay** in ⚙.
 - **Garbled or duplicated text in Live mode:** turn off predictive text in Samsung Keyboard, use Gboard, or use Staged mode.
 - **Pointer/scroll too fast or slow:** adjust in **⚙** settings.
 

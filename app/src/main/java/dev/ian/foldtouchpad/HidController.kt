@@ -25,6 +25,9 @@ class HidController(
         private set
     private var buttons = 0
 
+    /** Delay after each keyboard report (ms); set from Settings. */
+    @Volatile var keyGapMs = DEFAULT_KEY_GAP_MS
+
     /**
      * All reports go through one background thread. sendReport() is a blocking
      * binder call; doing it on the UI thread was the main source of keyboard lag.
@@ -34,18 +37,12 @@ class HidController(
     private val sender = Thread({
         while (true) {
             val r = queue.take()
-            // sendReport() returns false when the link is congested. Dropping a
-            // key-release makes the PC auto-repeat that key, so retry until accepted.
-            var tries = 0
-            while (true) {
-                val h = hid; val d = host
-                if (h == null || d == null) break
-                if (h.sendReport(d, r.id, r.data)) break
-                if (++tries > 50) break
-                Thread.sleep(4)
-            }
+            // Send once. sendReport()'s return value is unreliable on some stacks
+            // (false even on success), so retrying on it stalled typing badly.
+            val h = hid; val d = host
+            if (h != null && d != null) h.sendReport(d, r.id, r.data)
             // Keyboard reports are paced so the host sees every press and release.
-            if (r.id == HidDescriptor.ID_KEYBOARD) Thread.sleep(KEY_REPORT_GAP_MS)
+            if (r.id == HidDescriptor.ID_KEYBOARD && keyGapMs > 0) Thread.sleep(keyGapMs)
         }
     }, "hid-sender").apply { isDaemon = true; start() }
 
@@ -137,6 +134,9 @@ class HidController(
     // ---- Keyboard ----
     fun tapKey(modifiers: Int, usage: Int) {
         sendKeys(modifiers, usage)
+        // Release twice: a lost release is what makes the PC auto-repeat a key,
+        // and a duplicate "all keys up" report is harmless.
+        sendKeys(0, 0)
         sendKeys(0, 0)
     }
 
@@ -158,7 +158,7 @@ class HidController(
         const val BTN_LEFT = 1
         const val BTN_RIGHT = 2
         const val BTN_MIDDLE = 4
-        /** ~7.5ms is the shortest BT HID interval; 8ms keeps reports from bunching. */
-        const val KEY_REPORT_GAP_MS = 8L
+        /** 3 reports/char at 4ms ≈ 80 chars/s. */
+        const val DEFAULT_KEY_GAP_MS = 4L
     }
 }
