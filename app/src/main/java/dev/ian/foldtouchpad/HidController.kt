@@ -4,7 +4,9 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothHidDevice
+import android.bluetooth.BluetoothHidDeviceAppQosSettings
 import android.bluetooth.BluetoothHidDeviceAppSdpSettings
+import android.os.SystemClock
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.content.Context
@@ -40,26 +42,49 @@ class HidController(
             // Send once. sendReport()'s return value is unreliable on some stacks
             // (false even on success), so retrying on it stalled typing badly.
             val h = hid; val d = host
-            if (h != null && d != null) h.sendReport(d, r.id, r.data)
+            if (h != null && d != null) {
+                val t0 = SystemClock.elapsedRealtime()
+                h.sendReport(d, r.id, r.data)
+                recordSendTime(SystemClock.elapsedRealtime() - t0)
+            }
             // Keyboard reports are paced so the host sees every press and release.
             if (r.id == HidDescriptor.ID_KEYBOARD && keyGapMs > 0) Thread.sleep(keyGapMs)
         }
     }, "hid-sender").apply { isDaemon = true; start() }
 
+    // Diagnostics: how long sendReport() blocks. Shown in the status line.
+    private var statCount = 0
+    private var statTotalMs = 0L
+    private var statMaxMs = 0L
+    private var statLastShown = 0L
+    private var baseStatus = ""
+
+    private fun recordSendTime(ms: Long) {
+        statCount++; statTotalMs += ms; if (ms > statMaxMs) statMaxMs = ms
+        val now = SystemClock.elapsedRealtime()
+        if (queue.isEmpty() || now - statLastShown > 1000) {
+            statLastShown = now
+            onStatus("$baseStatus · send avg ${statTotalMs / statCount}ms, max ${statMaxMs}ms (${statCount})")
+            statCount = 0; statTotalMs = 0; statMaxMs = 0
+        }
+    }
+
+    private fun status(msg: String) { baseStatus = msg; onStatus(msg) }
+
     private val callback = object : BluetoothHidDevice.Callback() {
         override fun onAppStatusChanged(device: BluetoothDevice?, registered: Boolean) {
-            onStatus(if (registered) "Registered – pair from your PC or pick a host" else "Not registered")
+            status(if (registered) "Registered – pair from your PC or pick a host" else "Not registered")
             if (registered) device?.let { hid?.connect(it) }
         }
 
         override fun onConnectionStateChanged(device: BluetoothDevice, state: Int) {
             when (state) {
-                BluetoothProfile.STATE_CONNECTED -> { host = device; onStatus("Connected: ${device.name}") }
+                BluetoothProfile.STATE_CONNECTED -> { host = device; status("Connected: ${device.name}") }
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     if (host == device) host = null
-                    onStatus("Disconnected")
+                    status("Disconnected")
                 }
-                BluetoothProfile.STATE_CONNECTING -> onStatus("Connecting to ${device.name}…")
+                BluetoothProfile.STATE_CONNECTING -> status("Connecting to ${device.name}…")
             }
         }
 
@@ -81,11 +106,18 @@ class HidController(
                     "Fold Touchpad", "Touchpad and keyboard", "dev.ian",
                     BluetoothHidDevice.SUBCLASS1_COMBO, HidDescriptor.DESCRIPTOR,
                 )
-                proxy.registerApp(sdp, null, null, executor, callback)
+                // Ask for a low-latency link. Without QoS the stack may let the link
+                // idle into sniff mode, delaying each report by hundreds of ms
+                // (the PC then auto-repeats the held key).
+                val qos = BluetoothHidDeviceAppQosSettings(
+                    BluetoothHidDeviceAppQosSettings.SERVICE_GUARANTEED,
+                    800, 9, 0, 11250, BluetoothHidDeviceAppQosSettings.MAX,
+                )
+                proxy.registerApp(sdp, null, qos, executor, callback)
             }
 
             override fun onServiceDisconnected(profile: Int) {
-                hid = null; host = null; onStatus("HID service lost")
+                hid = null; host = null; status("HID service lost")
             }
         }, BluetoothProfile.HID_DEVICE)
     }
