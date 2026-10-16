@@ -45,13 +45,17 @@ The **Left** / **Right** buttons at the bottom can also be held for dragging.
 - **Esc, Tab, arrows, Del** are on the toolbar (scrolls horizontally).
 - Mapping assumes a US layout on the PC.
 
+## Settings
+Tap **⚙** on the toolbar:
+- **Pointer speed** and **Scroll speed** sliders (0.2×–4.0×). Changes apply and save immediately.
+- **Reset** restores defaults (pointer 1.6×, scroll 1.0×).
+
 ## Troubleshooting
 - **Won't connect:** forget the pairing on both the PC and the phone, then pair again.
 - **Pairing never works at all:** some Samsung firmware restricts the HID Device profile;
   note the status-line text when reporting it.
 - **Garbled or duplicated text:** turn off predictive text in Samsung Keyboard, or use Gboard.
-- **Pointer/scroll speed:** tune `sensitivity` and `scrollDivisor` in
-  `app/src/main/java/dev/ian/foldtouchpad/TouchpadView.kt`.
+- **Pointer/scroll too fast or slow:** adjust in **⚙** settings.
 
 ## Building locally
 Requires JDK 17 and the Android SDK (platform 36), plus Gradle 8.14:

@@ -14,6 +14,7 @@ import android.view.ViewGroup.LayoutParams.MATCH_PARENT
 import android.view.ViewGroup.LayoutParams.WRAP_CONTENT
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.SeekBar
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -37,6 +38,7 @@ class MainActivity : Activity() {
         }
         touchpad = TouchpadView(this, hid)
         keys = KeyboardSink(this, hid)
+        applySettings()
         keys.onStickyCleared = { runOnUiThread { modToggles.forEach { it.first.isChecked = false } } }
 
         val bar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -51,6 +53,7 @@ class MainActivity : Activity() {
         }.also { bar.addView(it); modToggles += it to mask }
 
         btn("Connect") { pickHost() }
+        btn("⚙") { showSettings() }
         btn("⌨") { keys.showKeyboard() }
         mod("Ctrl", KeyMap.MOD_CTRL); mod("Alt", KeyMap.MOD_ALT)
         mod("Shift", KeyMap.MOD_SHIFT); mod("Win", KeyMap.MOD_GUI)
@@ -121,6 +124,56 @@ class MainActivity : Activity() {
                     .putExtra(BluetoothAdapter.EXTRA_DISCOVERABLE_DURATION, 120))
             }
             .show()
+    }
+
+    private val prefs by lazy { getSharedPreferences("settings", MODE_PRIVATE) }
+
+    private fun applySettings() {
+        touchpad.sensitivity = prefs.getFloat(KEY_POINTER, DEFAULT_POINTER)
+        touchpad.scrollDivisor = BASE_SCROLL_DIVISOR / prefs.getFloat(KEY_SCROLL, DEFAULT_SCROLL)
+    }
+
+    /** Settings dialog: sliders for pointer and scroll speed (0.2x–4.0x), saved immediately. */
+    private fun showSettings() {
+        val pad = (16 * resources.displayMetrics.density).toInt()
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(pad * 2, pad, pad * 2, 0) }
+        fun slider(label: String, key: String, def: Float) {
+            val title = TextView(this)
+            fun show(v: Float) { title.text = "%s: %.1f×".format(label, v) }
+            val current = prefs.getFloat(key, def)
+            show(current)
+            val bar = SeekBar(this).apply {
+                max = 38 // steps of 0.1 from 0.2 to 4.0
+                progress = ((current - 0.2f) * 10).toInt().coerceIn(0, 38)
+                setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(sb: SeekBar, p: Int, fromUser: Boolean) {
+                        val v = 0.2f + p / 10f
+                        show(v); prefs.edit().putFloat(key, v).apply(); applySettings()
+                    }
+                    override fun onStartTrackingTouch(sb: SeekBar) {}
+                    override fun onStopTrackingTouch(sb: SeekBar) {}
+                })
+            }
+            box.addView(title); box.addView(bar, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
+        }
+        slider("Pointer speed", KEY_POINTER, DEFAULT_POINTER)
+        slider("Scroll speed", KEY_SCROLL, DEFAULT_SCROLL)
+        AlertDialog.Builder(this)
+            .setTitle("Settings")
+            .setView(box)
+            .setPositiveButton("Done", null)
+            .setNeutralButton("Reset") { _, _ ->
+                prefs.edit().clear().apply(); applySettings()
+            }
+            .show()
+    }
+
+    companion object {
+        private const val KEY_POINTER = "pointer_speed"
+        private const val KEY_SCROLL = "scroll_speed"
+        private const val DEFAULT_POINTER = 1.6f
+        private const val DEFAULT_SCROLL = 1.0f
+        private const val BASE_SCROLL_DIVISOR = 24f
     }
 
     override fun onDestroy() {
