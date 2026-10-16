@@ -4,16 +4,22 @@ Turns a Galaxy Z Fold 8 (Android 16, API 36) into a Bluetooth touchpad and keybo
 for a PC, using Android's `BluetoothHidDevice` profile. No PC-side software needed.
 
 ## Install
-Every push builds a debug APK in GitHub Actions.
+Every push to `main` publishes a signed APK as a GitHub Release.
 
-1. Download the latest build:
-   ```sh
-   gh run download -R ian-howell/fold-touchpad -n fold-touchpad-debug
-   ```
-   (or: repo → **Actions** → latest run → **Artifacts** → `fold-touchpad-debug`)
-2. Install `app-debug.apk` on the phone:
-   - USB: `adb install app-debug.apk`, or
-   - copy the file to the phone and open it (allow "install unknown apps" when prompted).
+**On the phone (simplest):** while signed in to GitHub in the browser, open
+https://github.com/ian-howell/fold-touchpad/releases/latest/download/fold-touchpad.apk
+then tap the download, allow your browser/My Files to install unknown apps, and tap **Install**
+(choose **Install anyway** if Play Protect warns). Updating = the same link again;
+it installs over the old version and keeps your settings.
+
+**From a PC with adb:**
+```sh
+gh release download -R ian-howell/fold-touchpad -p fold-touchpad.apk --clobber
+adb install -r fold-touchpad.apk
+```
+
+Releases are signed with a key stored in repo secrets (`KEYSTORE_B64`, `KEYSTORE_PASSWORD`);
+a backup lives in `~/.config/fold-touchpad/`. Losing it means users must uninstall to update.
 
 ## First-time pairing
 1. Open **Fold Touchpad** and grant the Bluetooth permissions.
@@ -61,6 +67,6 @@ Tap **⚙** on the toolbar:
 Requires JDK 17 and the Android SDK (platform 36), plus Gradle 8.14:
 
 ```sh
-gradle :app:assembleDebug     # APK in app/build/outputs/apk/debug/
+gradle :app:assembleDebug     # debug APK (different signature than releases) in app/build/outputs/apk/debug/
 gradle :app:installDebug      # build + install to a connected phone
 ```
