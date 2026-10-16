@@ -9,6 +9,7 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
 import android.content.Context
 import java.util.concurrent.Executors
+import java.util.concurrent.LinkedBlockingQueue
 
 /** Registers the phone as a Bluetooth HID keyboard+mouse and sends reports. */
 @SuppressLint("MissingPermission")
@@ -23,6 +24,20 @@ class HidController(
     var host: BluetoothDevice? = null
         private set
     private var buttons = 0
+
+    /**
+     * All reports go through one background thread. sendReport() is a blocking
+     * binder call; doing it on the UI thread was the main source of keyboard lag.
+     */
+    private class Report(val id: Int, val data: ByteArray)
+    private val queue = LinkedBlockingQueue<Report>()
+    private val sender = Thread({
+        while (true) {
+            val r = queue.take()
+            val h = hid; val d = host
+            if (h != null && d != null) h.sendReport(d, r.id, r.data)
+        }
+    }, "hid-sender").apply { isDaemon = true; start() }
 
     private val callback = object : BluetoothHidDevice.Callback() {
         override fun onAppStatusChanged(device: BluetoothDevice?, registered: Boolean) {
@@ -104,9 +119,9 @@ class HidController(
     fun click(mask: Int) { setButton(mask, true); setButton(mask, false) }
 
     private fun sendMouse(b: Int, x: Int, y: Int, w: Int, h: Int) {
-        val h0 = hid ?: return; val d = host ?: return
-        h0.sendReport(d, HidDescriptor.ID_MOUSE,
-            byteArrayOf(b.toByte(), x.toByte(), y.toByte(), w.toByte(), h.toByte()))
+        if (host == null) return
+        queue.put(Report(HidDescriptor.ID_MOUSE,
+            byteArrayOf(b.toByte(), x.toByte(), y.toByte(), w.toByte(), h.toByte())))
     }
 
     // ---- Keyboard ----
@@ -115,10 +130,30 @@ class HidController(
         sendKeys(0, 0)
     }
 
+    /**
+     * Types a string as fast as HID allows. Consecutive different keys are sent as
+     * direct press->press transitions (no release report in between); a release is
+     * only inserted when the same key repeats or the modifier changes. That roughly
+     * halves the report count versus press/release per character.
+     */
+    fun typeText(text: CharSequence, extraModifiers: Int = 0) {
+        var lastMod = 0; var lastUsage = 0
+        for (c in text) {
+            val (mod0, usage) = KeyMap.forChar(c) ?: continue
+            val mod = mod0 or extraModifiers
+            if (usage == lastUsage || mod != lastMod) {
+                if (lastUsage != 0) sendKeys(0, 0)
+            }
+            sendKeys(mod, usage)
+            lastMod = mod; lastUsage = usage
+        }
+        if (lastUsage != 0) sendKeys(0, 0)
+    }
+
     private fun sendKeys(modifiers: Int, usage: Int) {
-        val h = hid ?: return; val d = host ?: return
-        h.sendReport(d, HidDescriptor.ID_KEYBOARD,
-            byteArrayOf(modifiers.toByte(), 0, usage.toByte(), 0, 0, 0, 0, 0))
+        if (host == null) return
+        queue.put(Report(HidDescriptor.ID_KEYBOARD,
+            byteArrayOf(modifiers.toByte(), 0, usage.toByte(), 0, 0, 0, 0, 0)))
     }
 
     companion object {

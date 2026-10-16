@@ -28,11 +28,11 @@ class KeyboardSink(context: Context, private val hid: HidController) : View(cont
             EditorInfo.IME_ACTION_NONE
         return object : BaseInputConnection(this, false) {
             override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean {
-                text.forEach { typeChar(it) }; return true
+                typeText(text); return true
             }
             override fun setComposingText(text: CharSequence, newCursorPosition: Int): Boolean {
                 // Composing disabled via VISIBLE_PASSWORD; commit anything that slips through.
-                text.forEach { typeChar(it) }; return true
+                typeText(text); return true
             }
             override fun deleteSurroundingText(before: Int, after: Int): Boolean {
                 repeat(before) { send(KeyMap.BACKSPACE) }
@@ -57,6 +57,10 @@ class KeyboardSink(context: Context, private val hid: HidController) : View(cont
         val ch = event.unicodeChar
         if (ch != 0) { typeChar(ch.toChar()); return true }
         return false
+    }
+
+    private fun typeText(t: CharSequence) {
+        if (t.length == 1) typeChar(t[0]) else hid.typeText(t, consumeSticky())
     }
 
     private fun typeChar(c: Char) {

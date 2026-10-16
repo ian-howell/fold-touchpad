@@ -26,6 +26,8 @@ class MainActivity : Activity() {
     private lateinit var status: TextView
     private lateinit var touchpad: TouchpadView
     private lateinit var keys: KeyboardSink
+    private lateinit var staging: StagingBar
+    private var stagedMode = true
     private val modToggles = mutableListOf<Pair<ToggleButton, Int>>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,6 +40,8 @@ class MainActivity : Activity() {
         }
         touchpad = TouchpadView(this, hid)
         keys = KeyboardSink(this, hid)
+        staging = StagingBar(this, hid)
+        stagedMode = prefs.getBoolean(KEY_STAGED, true)
         applySettings()
         keys.onStickyCleared = { runOnUiThread { modToggles.forEach { it.first.isChecked = false } } }
 
@@ -54,7 +58,19 @@ class MainActivity : Activity() {
 
         btn("Connect") { pickHost() }
         btn("⚙") { showSettings() }
-        btn("⌨") { keys.showKeyboard() }
+        btn("⌨") { if (stagedMode) staging.showKeyboard() else keys.showKeyboard() }
+        val modeBtn = btn("") {}
+        fun renderMode() {
+            modeBtn.text = if (stagedMode) "Mode: Staged" else "Mode: Live"
+            staging.visibility = if (stagedMode) android.view.View.VISIBLE else android.view.View.GONE
+        }
+        modeBtn.setOnClickListener {
+            stagedMode = !stagedMode
+            prefs.edit().putBoolean(KEY_STAGED, stagedMode).apply()
+            keys.hideKeyboard(); renderMode()
+            if (stagedMode) staging.showKeyboard() else keys.showKeyboard()
+        }
+        renderMode()
         mod("Ctrl", KeyMap.MOD_CTRL); mod("Alt", KeyMap.MOD_ALT)
         mod("Shift", KeyMap.MOD_SHIFT); mod("Win", KeyMap.MOD_GUI)
         btn("Esc") { keys.send(KeyMap.ESC) }
@@ -80,6 +96,7 @@ class MainActivity : Activity() {
             addView(status, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             addView(HorizontalScrollView(context).apply { addView(bar) }, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             addView(keys, LinearLayout.LayoutParams(1, 1))
+            addView(staging, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
             addView(touchpad, LinearLayout.LayoutParams(MATCH_PARENT, 0, 1f))
             addView(buttons, LinearLayout.LayoutParams(MATCH_PARENT, WRAP_CONTENT))
         }
@@ -163,7 +180,7 @@ class MainActivity : Activity() {
             .setView(box)
             .setPositiveButton("Done", null)
             .setNeutralButton("Reset") { _, _ ->
-                prefs.edit().clear().apply(); applySettings()
+                prefs.edit().remove(KEY_POINTER).remove(KEY_SCROLL).apply(); applySettings()
             }
             .show()
     }
@@ -171,6 +188,7 @@ class MainActivity : Activity() {
     companion object {
         private const val KEY_POINTER = "pointer_speed"
         private const val KEY_SCROLL = "scroll_speed"
+        private const val KEY_STAGED = "staged_mode"
         private const val DEFAULT_POINTER = 1.6f
         private const val DEFAULT_SCROLL = 1.0f
         private const val BASE_SCROLL_DIVISOR = 24f
